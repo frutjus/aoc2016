@@ -1,11 +1,12 @@
 include '../common.inc'
 
 section 'const' readable
-  filepath db 'C:\Users\e1006515\source\aoc2016\day1\input.txt',0
-  teststr db 'test',0
+  filepath db 'input.txt',0
+  outstr db 'Blocks: %1!d!',0
 
 section 'text' readable executable
 main:
+  ;int3
   push rbp
   mov rbp,rsp
   sub rsp,11*8
@@ -26,7 +27,8 @@ main:
     add r10,rax
     and r10,3
     call parse_number
-    imul r11,r10,8
+    lea r11,[r10*8+8]
+    imul r11,-1
     add r11,rbp
     add qword [r11],rax
     call parse_separator
@@ -34,23 +36,26 @@ main:
   jne @b
   
   mov rax,0
-  add rax,[rbp-0]
-  sub rax,[rbp-16]
-  jae @f
-    imul rax,rax,-1
-  @@:
-  mov rbx,rax
-  mov rax,0
   add rax,[rbp-8]
   sub rax,[rbp-24]
   jae @f
     imul rax,rax,-1
   @@:
+  mov rbx,rax
+  mov rax,0
+  add rax,[rbp-16]
+  sub rax,[rbp-32]
+  jae @f
+    imul rax,rax,-1
+  @@:
   add rax,rbx
   
-  int3
+  mov rcx,outstr
+  mov rdx,rax
+  call printf
   
-  add rsp,9*8
+  add rsp,11*8
+  pop rbp
   ret
 
 parse_direction:
@@ -68,8 +73,9 @@ parse_direction:
 
 parse_number:
   mov rax,0
+  mov rbx,0
   @@:
-    mov rbx,[rcx]
+    mov bl,[rcx]
     cmp rbx,'0'
     jb @f
     cmp rbx,'9'
