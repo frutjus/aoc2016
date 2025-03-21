@@ -76,6 +76,8 @@ FORMAT_MESSAGE_MAX_WIDTH_MASK  = 0x000000FF
 section 'const' readable
   func_read_file db 'read_file: ',0
   func_read_file_size = $ - func_read_file
+  func_printf db 'printf: ',0
+  func_printf_size = $ - func_printf
 
 section 'data' readable writeable
   stdout dq ?
@@ -174,11 +176,54 @@ print:
   add rsp,5*8
   ret
 
+printf:
+    mov [rsp+16],rdx
+    mov [rsp+24],r8
+    mov [rsp+32],r9
+    lea rax,[rsp+16]
+    push rbp
+    mov rbp,rsp
+    sub rsp,9*8
+    msgbuf equ [rbp-8]
+    args equ [rbp-16]
+    mov rdx,rcx
+    mov rcx,FORMAT_MESSAGE_ALLOCATE_BUFFER or FORMAT_MESSAGE_FROM_STRING
+    mov r8,0
+    mov r9,0
+    lea rbx,msgbuf
+    mov [rsp+32],rbx
+    mov qword [rsp+40],0
+    mov args,rax
+    lea rax,args
+    mov [rsp+48],rax
+    call [FormatMessageA]
+    cmp rax,0
+    jne @f
+        mov rcx,func_printf
+        mov rdx,func_printf_size
+        call fail
+    @@:
+    mov rcx,msgbuf
+    mov rdx,rax
+    call print
+    mov rcx,msgbuf
+    call [LocalFree]
+    cmp rax,0
+    je @f
+        mov rcx,func_printf
+        mov rdx,func_printf_size
+        call fail
+    @@:
+    add rsp,9*8
+    mov rsp,rbp
+    pop rbp
+    ret
+
 fail:
   push rbp
   mov rbp,rsp
   sub rsp,9*8
-  errorbuffer equ [rbp-0]
+  errorbuffer equ [rbp-8]
   call print
   call [GetLastError]
   mov rcx,FORMAT_MESSAGE_FROM_SYSTEM or FORMAT_MESSAGE_ALLOCATE_BUFFER or FORMAT_MESSAGE_IGNORE_INSERTS
@@ -222,6 +267,7 @@ kernel_address_table:
   FormatMessageA    dq rva FormatMessageA_import
   GetFileSizeEx	    dq rva GetFileSizeEx_import
   VirtualAlloc      dq rva VirtualAlloc_import
+  LocalFree         dq rva LocalFree_import
   dq 0
 
 ExitProcess_import: db 0,0,'ExitProcess',0
@@ -309,4 +355,10 @@ VirtualAlloc_import db 0,0,'VirtualAlloc',0
 ;   [in]           SIZE_T dwSize,
 ;   [in]           DWORD  flAllocationType,
 ;   [in]           DWORD  flProtect
+; );
+
+LocalFree_import db 0,0,'LocalFree',0
+; https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-localfree
+; HLOCAL LocalFree(
+;   [in] _Frees_ptr_opt_ HLOCAL hMem
 ; );
