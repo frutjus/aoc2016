@@ -2,24 +2,27 @@ include '../common.inc'
 
 section 'const' readable
   filepath db 'input.txt',0
-  outstr db 'Blocks: %1!d!',0
+  outstr db 'Blocks: %1!d!',10,0
 
 section 'text' readable executable
 main:
-  ;int3
-  push rbp
-  mov rbp,rsp
-  sub rsp,11*8
+  ; these variables are to hold the amount moved in each direction.
+  ; they are also accessed dynamically in line .l1 below.
+  north equ [rbp-32]
+  east  equ [rbp-24]
+  south equ [rbp-16]
+  west  equ [rbp-8]
+  enter 8*8,0
   mov rcx,filepath
   call read_file
   
   ; initial direction = North
   mov r10,0
   ; initial distance per direction = 0
-  mov qword [rbp-8],0
-  mov qword [rbp-16],0
-  mov qword [rbp-24],0
-  mov qword [rbp-32],0
+  mov qword north,0
+  mov qword east,0
+  mov qword south,0
+  mov qword west,0
   
   mov rcx,rax
   @@:
@@ -27,26 +30,22 @@ main:
     add r10,rax
     and r10,3
     call parse_number
-    lea r11,[r10*8+8]
-    imul r11,-1
-    add r11,rbp
-    add qword [r11],rax
+.l1:add qword [rbp+r10*8-32],rax
     call parse_separator
   cmp rax,-1
   jne @b
   
   mov rax,0
-  add rax,[rbp-8]
-  sub rax,[rbp-24]
+  add rax,north
+  sub rax,south
   jae @f
-    imul rax,rax,-1
+    neg rax
   @@:
-  mov rbx,rax
-  mov rax,0
-  add rax,[rbp-16]
-  sub rax,[rbp-32]
+  mov rbx,0
+  add rbx,east
+  sub rbx,west
   jae @f
-    imul rax,rax,-1
+    neg rbx
   @@:
   add rax,rbx
   
@@ -54,8 +53,7 @@ main:
   mov rdx,rax
   call printf
   
-  add rsp,11*8
-  pop rbp
+  leave
   ret
 
 parse_direction:
