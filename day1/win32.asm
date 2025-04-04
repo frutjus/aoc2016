@@ -44,6 +44,8 @@ STD_INPUT_HANDLE       = 0FFFFFFF6h
 STD_OUTPUT_HANDLE      = 0FFFFFFF5h
 STD_ERROR_HANDLE       = 0FFFFFFF4h
 
+INVALID_HANDLE_VALUE   = 0x6
+
 MEM_COMMIT             = 1000h
 MEM_RESERVE            = 2000h
 MEM_DECOMMIT           = 4000h
@@ -65,6 +67,11 @@ PAGE_EXECUTE_WRITECOPY = 80h
 PAGE_GUARD             = 100h
 PAGE_NOCACHE           = 200h
 
+MEM_DECOMMIT              = 0x00004000
+MEM_RELEASE               = 0x00008000
+MEM_COALESCE_PLACEHOLDERS = 0x00000001
+MEM_PRESERVE_PLACEHOLDER  = 0x00000002
+
 FORMAT_MESSAGE_ALLOCATE_BUFFER = 0x00000100
 FORMAT_MESSAGE_ARGUMENT_ARRAY  = 0x00002000
 FORMAT_MESSAGE_FROM_HMODULE    = 0x00000800
@@ -74,14 +81,21 @@ FORMAT_MESSAGE_IGNORE_INSERTS  = 0x00000200
 FORMAT_MESSAGE_MAX_WIDTH_MASK  = 0x000000FF
 
 section 'const' readable
-  func_read_file db 'read_file: ',0
-  func_read_file_size = $ - func_read_file
-  func_printf db 'printf: ',0
-  func_printf_size = $ - func_printf
-  timer_msg db 'Ran in %1!u! microseconds',10,0
+  func_get_std_handle      db 'get_std_handle: ',0
+  func_get_std_handle_size = $ - func_get_std_handle
+  func_read_file           db 'read_file: ',0
+  func_read_file_size      = $ - func_read_file
+  func_printf              db 'printf: ',0
+  func_printf_size         = $ - func_printf
+  func_raw_alloc           db 'raw_alloc: ',0
+  func_raw_alloc_size      = $ - func_raw_alloc
+  func_raw_free            db 'raw_free: ',0
+  func_raw_free_size       = $ - func_raw_free
+  timer_msg                db 'Ran in %1!u! microseconds',10,0
 
 section 'data' readable writeable
   stdout dq ?
+
 
 section 'text' readable executable
 entry $
@@ -93,11 +107,8 @@ entry $
   call [QueryPerformanceFrequency]
   lea rcx,start_time
   call [QueryPerformanceCounter]
-  mov ecx,STD_OUTPUT_HANDLE
-  call [GetStdHandle]
-  ; TODO: error checking
-  mov [stdout],rax
-  call main
+  call get_std_handle
+  call main ;call out to the main function of the user program
   lea rcx,end_time
   call [QueryPerformanceCounter]
   mov rcx,timer_msg
@@ -111,7 +122,22 @@ entry $
   call printf
   mov rcx,0
   call exit
-  
+
+get_std_handle:
+  enter 4*8,0
+  mov ecx,STD_OUTPUT_HANDLE
+  call [GetStdHandle]
+  cmp rax,INVALID_HANDLE_VALUE
+  jne @f
+    mov rcx,func_get_std_handle
+    mov rdx,func_get_std_handle_size
+    call print
+    call fail
+  @@:
+  mov [stdout],rax
+  leave
+  ret
+
 read_file:
   filehandle equ [rbp-8]
   filesize equ [rbp-16]
@@ -239,6 +265,46 @@ printf:
   leave
   ret
 
+get_page_size:
+  enter 4*8+64,0 ;reserve space for SYSTEM_INFO struct
+  lea rcx,[rbp-50]
+  call [GetSystemInfo]
+  mov eax,[rbp-46]
+  leave
+  ret
+
+raw_alloc:
+  enter 4*8,0
+  mov rdx,rcx
+  mov rcx,0
+  mov r8,MEM_COMMIT or MEM_RESERVE
+  mov r9,PAGE_READWRITE
+  call [VirtualAlloc]
+  cmp rax,0
+  jne @f
+    mov rcx,func_raw_alloc
+    mov rdx,func_raw_alloc_size
+    call print
+    call fail
+  @@:
+  leave
+  ret
+
+raw_free:
+  enter 4*8,0
+  mov rdx,0
+  mov r8,MEM_RELEASE
+  call [VirtualFree]
+  cmp rax,0
+  jne @f
+    mov rcx,func_raw_free
+    mov rdx,func_raw_free_size
+    call print
+    call fail
+  @@:
+  leave
+  ret
+
 fail:
   errorbuffer equ [rbp-8]
   enter 8*8,0
@@ -262,6 +328,7 @@ fail:
 
 exit:
   enter 4*8,0
+  ; the stack must be 16-byte aligned or ExitProcess will crash!
   call [ExitProcess]
 
 
@@ -284,9 +351,13 @@ kernel_address_table:
   FormatMessageA            dq rva FormatMessageA_import
   GetFileSizeEx	            dq rva GetFileSizeEx_import
   VirtualAlloc              dq rva VirtualAlloc_import
+  VirtualFree               dq rva VirtualFree_import
+  VirtualProtect            dq rva VirtualProtect_import
   LocalFree                 dq rva LocalFree_import
   QueryPerformanceFrequency dq rva QueryPerformanceFrequency_import
   QueryPerformanceCounter   dq rva QueryPerformanceCounter_import
+  FlushInstructionCache     dq rva FlushInstructionCache_import
+  GetSystemInfo             dq rva GetSystemInfo_import
   dq 0
 
 ExitProcess_import db 0,0,'ExitProcess',0
@@ -382,6 +453,23 @@ VirtualAlloc_import db 0,0,'VirtualAlloc',0
 ;   [in]           DWORD  flProtect
 ; );
 
+VirtualFree_import db 0,0,'VirtualFree',0
+; https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-virtualfree
+; BOOL VirtualFree(
+;   [in] LPVOID lpAddress,
+;   [in] SIZE_T dwSize,
+;   [in] DWORD  dwFreeType
+; );
+
+VirtualProtect_import db 0,0,'VirtualProtect',0
+; https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-virtualprotect
+; BOOL VirtualProtect(
+;   [in]  LPVOID lpAddress,
+;   [in]  SIZE_T dwSize,
+;   [in]  DWORD  flNewProtect,
+;   [out] PDWORD lpflOldProtect
+; );
+
 LocalFree_import db 0,0,'LocalFree',0
 ; https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-localfree
 ; HLOCAL LocalFree(
@@ -399,3 +487,35 @@ QueryPerformanceCounter_import db 0,0,'QueryPerformanceCounter',0
 ; BOOL QueryPerformanceCounter(
 ;   [out] LARGE_INTEGER *lpPerformanceCount
 ; );
+
+FlushInstructionCache_import db 0,0,'FlushInstructionCache',0
+; https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-flushinstructioncache
+; BOOL FlushInstructionCache(
+;   [in] HANDLE  hProcess,
+;   [in] LPCVOID lpBaseAddress,
+;   [in] SIZE_T  dwSize
+; );
+
+GetSystemInfo_import db 0,0,'GetSystemInfo',0
+; https://learn.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-getsysteminfo
+; void GetSystemInfo(
+;   [out] LPSYSTEM_INFO lpSystemInfo
+; );
+; typedef struct _SYSTEM_INFO {
+;   union {
+;     DWORD dwOemId;
+;     struct {
+;       WORD wProcessorArchitecture;
+;       WORD wReserved;
+;     } DUMMYSTRUCTNAME;
+;   } DUMMYUNIONNAME;
+;   DWORD     dwPageSize;
+;   LPVOID    lpMinimumApplicationAddress;
+;   LPVOID    lpMaximumApplicationAddress;
+;   DWORD_PTR dwActiveProcessorMask;
+;   DWORD     dwNumberOfProcessors;
+;   DWORD     dwProcessorType;
+;   DWORD     dwAllocationGranularity;
+;   WORD      wProcessorLevel;
+;   WORD      wProcessorRevision;
+; } SYSTEM_INFO, *LPSYSTEM_INFO;

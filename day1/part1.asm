@@ -1,4 +1,4 @@
-include '../common.inc'
+include 'win32.asm'
 
 section 'const' readable
   filepath db 'input.txt',0
