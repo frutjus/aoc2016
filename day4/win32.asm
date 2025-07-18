@@ -231,6 +231,7 @@ printf:
   lea rax,[rsp+16]
   msgbuf equ [rbp-8]
   args equ [rbp-16]
+  push rbx
   enter 10*8,0
   mov rdx,rcx
   mov rcx,FORMAT_MESSAGE_ALLOCATE_BUFFER or FORMAT_MESSAGE_FROM_STRING
@@ -263,6 +264,7 @@ printf:
     call fail
   @@:
   leave
+  pop rbx
   ret
 
 get_page_size:

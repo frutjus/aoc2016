@@ -4,9 +4,7 @@ section 'const' readable
   func_alloc db 'alloc: out of memory',10,0
   func_alloc_size = $ - func_alloc
   filepath db 'input.txt',0
-  outstr db 'sum of sector IDs: %1!llu!',10,0
-  debug_accept_str db 'accepted: %1!llu!',10,0
-  debug_reject_str db 'rejected: %1!llu!',10,0
+  outstr db '%1!u!: %2!s! %3!llu!',10,0
 
 section 'data' readable writeable
   ; allocator data
@@ -124,6 +122,8 @@ main:
   mov rbx,0
   
   .loop:
+    inc rbx
+    mov r13,rsi
     mov qword [rbp-64],0
     mov qword [rbp-56], 0
     mov qword [rbp-48], 0
@@ -173,16 +173,15 @@ main:
     call cmp_str
     cmp rax,0
     jne @f
-      add rbx,r12
-      mov rcx,debug_accept_str
+      mov rcx,r13
       mov rdx,r12
-      ;call printf
-      jmp .over
+      call decrypt_name
+      mov rcx,outstr
+      mov rdx,rbx
+      mov r8,r13
+      mov r9,r12
+      call printf
     @@:
-      mov rcx,debug_reject_str
-      mov rdx,r12
-      ;call printf
-    .over:
     add rsi,6
     
     call parse_newline
@@ -190,10 +189,6 @@ main:
     cmp rax,1
     jne .loop
   .end:
-  
-  mov rcx,outstr
-  mov rdx,rbx
-  call printf
   
   leave
   pop r15
@@ -277,6 +272,43 @@ cmp_str:
   mov rax,0
   pop r13
   pop r12
+  ret
+
+decrypt_name:
+  push rbx
+  mov rax,rdx
+  mov rdx,0
+  mov rbx,26
+  div rbx
+  .loop:
+    mov al,[rcx]
+    cmp al,'-'
+    jne @f
+      mov byte [rcx],' '
+      inc rcx
+      jmp .loop
+    @@:
+    cmp al,'z'
+    jbe @f
+      mov byte [rcx],0
+      jmp .end
+    @@:
+    cmp al,'a'
+    jae @f
+      mov byte [rcx],0
+      jmp .end
+    @@:
+    add al,dl
+    cmp al,'z'
+    jbe @f
+      sub al,26
+    @@:
+    mov [rcx],al
+    
+    inc rcx
+    jmp .loop
+  .end:
+  pop rbx
   ret
 
 ; we keep the current parse location in rsi, instead of passing it in rcx
